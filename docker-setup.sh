@@ -158,6 +158,39 @@ mkdir -p "$OPENCLAW_WORKSPACE_DIR"
 # that reject creating new subdirectories from inside the container.
 mkdir -p "$OPENCLAW_CONFIG_DIR/identity"
 
+# Try to ensure host config/workspace are writable by the container's `node` user.
+# We attempt to discover the `node` UID/GID from the image and chown the folders
+# if the caller can (via sudo or direct chown). Failing that, we relax group
+# permissions so a same-group container user can write where possible.
+if command -v docker >/dev/null 2>&1; then
+  NODE_UID=""
+  NODE_GID=""
+  # Try to get node uid/gid from the configured image. Ignore failures.
+  NODE_UID="$(docker run --rm "${IMAGE_NAME}" id -u node 2>/dev/null || true)"
+  NODE_GID="$(docker run --rm "${IMAGE_NAME}" id -g node 2>/dev/null || true)"
+
+  if [[ -n "$NODE_UID" && -n "$NODE_GID" ]]; then
+    echo "Detected container 'node' user as UID:GID ${NODE_UID}:${NODE_GID}"
+    # If current user already matches, nothing to do.
+    if [[ "$(id -u)" != "$NODE_UID" ]]; then
+      if command -v sudo >/dev/null 2>&1; then
+        echo "Attempting to chown $OPENCLAW_CONFIG_DIR and $OPENCLAW_WORKSPACE_DIR to ${NODE_UID}:${NODE_GID} using sudo"
+        sudo chown -R "${NODE_UID}:${NODE_GID}" "$OPENCLAW_CONFIG_DIR" "$OPENCLAW_WORKSPACE_DIR" 2>/dev/null || true
+      else
+        echo "Trying chown without sudo for $OPENCLAW_CONFIG_DIR and $OPENCLAW_WORKSPACE_DIR"
+        chown -R "${NODE_UID}:${NODE_GID}" "$OPENCLAW_CONFIG_DIR" "$OPENCLAW_WORKSPACE_DIR" 2>/dev/null || true
+      fi
+    fi
+
+    # Ensure at least user+group have read/write/execute where reasonable.
+    chmod -R ug+rwX "$OPENCLAW_CONFIG_DIR" "$OPENCLAW_WORKSPACE_DIR" 2>/dev/null || true
+  else
+    # If we couldn't determine UID/GID, be more permissive to avoid EACCES.
+    echo "Could not determine container 'node' UID/GID; relaxing config/workspace permissions"
+    chmod -R u+rwX,g+rwX "$OPENCLAW_CONFIG_DIR" "$OPENCLAW_WORKSPACE_DIR" 2>/dev/null || true
+  fi
+fi
+
 export OPENCLAW_CONFIG_DIR
 export OPENCLAW_WORKSPACE_DIR
 export OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
