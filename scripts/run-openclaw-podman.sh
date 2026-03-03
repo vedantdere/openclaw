@@ -156,6 +156,62 @@ if [[ ! -f "$CONFIG_JSON" ]]; then
   echo "Created $CONFIG_JSON (minimal gateway.mode=local)." >&2
 fi
 
+# auto-bootstrap Control UI allowed origins for non-loopback binds (see
+# docker-setup.sh for the same behaviour).  This is invoked before the
+# container is ever started so we can mutate the on-disk config.json directly
+# via a throwaway podman run.
+ensure_control_ui_allowed_origins_podman() {
+  if [[ "$GATEWAY_BIND" == "loopback" ]]; then
+    return
+  fi
+
+  local port="${HOST_GATEWAY_PORT:-18789}"
+  local ips=()
+  if command -v ip >/dev/null 2>&1; then
+    while IFS= read -r addr; do
+      ips+=("$addr")
+    done < <(ip -4 addr show scope global | awk '/inet /{print $2}' | cut -d/ -f1)
+  elif command -v hostname >/dev/null 2>&1; then
+    for ip in $(hostname -I 2>/dev/null); do
+      ips+=("$ip")
+    done
+  fi
+
+  local allowed_origin_json
+  allowed_origin_json='['
+  allowed_origin_json+="\"http://127.0.0.1:${port}\""
+  for ip in "${ips[@]}"; do
+    if [[ -n "$ip" && "$ip" != "127.0.0.1" ]]; then
+      allowed_origin_json+=" ,\"http://${ip}:${port}\""
+    fi
+  done
+  allowed_origin_json+=']'
+
+  local current_allowed_origins
+  current_allowed_origins=$(
+    podman run --pull="$PODMAN_PULL" --rm \
+      -e OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_GATEWAY_TOKEN" \
+      -v "$CONFIG_DIR:/home/node/.openclaw:rw" \
+      "$OPENCLAW_IMAGE" \
+      node dist/index.js config get gateway.controlUi.allowedOrigins 2>/dev/null || true
+  )
+  current_allowed_origins="${current_allowed_origins//$'\r'/}"
+
+  if [[ -n "$current_allowed_origins" && "$current_allowed_origins" != "null" && "$current_allowed_origins" != "[]" ]]; then
+    echo "Control UI allowlist already configured; leaving gateway.controlUi.allowedOrigins unchanged." >&2
+    return
+  fi
+
+  podman run --pull="$PODMAN_PULL" --rm \
+    -e OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_GATEWAY_TOKEN" \
+    -v "$CONFIG_DIR:/home/node/.openclaw:rw" \
+    "$OPENCLAW_IMAGE" \
+    node dist/index.js config set gateway.controlUi.allowedOrigins "$allowed_origin_json" --strict-json >/dev/null
+  echo "Set gateway.controlUi.allowedOrigins to $allowed_origin_json for non-loopback bind." >&2
+}
+
+ensure_control_ui_allowed_origins_podman
+
 PODMAN_USERNS="${OPENCLAW_PODMAN_USERNS:-keep-id}"
 USERNS_ARGS=()
 RUN_USER_ARGS=()

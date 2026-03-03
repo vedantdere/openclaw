@@ -69,14 +69,40 @@ NODE
 }
 
 ensure_control_ui_allowed_origins() {
+  # If the gateway is bound to loopback we don't need an explicit allowlist.
   if [[ "${OPENCLAW_GATEWAY_BIND}" == "loopback" ]]; then
     return 0
   fi
 
+  # Collect host IPv4 addresses (prefer `ip`, fallback to `hostname -I`) so
+  # browsers visiting the Control UI from other machines (LAN) will have
+  # their Origin match one of the allowed origins.
+  local port="$OPENCLAW_GATEWAY_PORT"
+  local ips=()
+
+  if command -v ip >/dev/null 2>&1; then
+    while IFS= read -r addr; do
+      ips+=("$addr")
+    done < <(ip -4 addr show scope global | awk '/inet /{print $2}' | cut -d/ -f1)
+  elif command -v hostname >/dev/null 2>&1; then
+    for ip in $(hostname -I 2>/dev/null); do
+      ips+=("$ip")
+    done
+  fi
+
+  # Build JSON array string including loopback and any discovered IPs.
   local allowed_origin_json
+  allowed_origin_json='['
+  allowed_origin_json+="\"http://127.0.0.1:${port}\""
+  for ip in "${ips[@]}"; do
+    if [[ -n "$ip" && "$ip" != "127.0.0.1" ]]; then
+      allowed_origin_json+=",\"http://${ip}:${port}\""
+    fi
+  done
+  allowed_origin_json+=']'
+
   local current_allowed_origins
-  allowed_origin_json="$(printf '["http://127.0.0.1:%s"]' "$OPENCLAW_GATEWAY_PORT")"
-  current_allowed_origins="$(
+  current_allowed_origins="$([
     docker compose "${COMPOSE_ARGS[@]}" run --rm openclaw-cli \
       config get gateway.controlUi.allowedOrigins 2>/dev/null || true
   )"
