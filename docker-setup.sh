@@ -197,7 +197,7 @@ OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
 # This avoids including experimental extensions with known build issues.
 # Users can override with: OPENCLAW_EXTENSIONS="ext1 ext2" ./docker-setup.sh
 if [[ -z "${OPENCLAW_EXTENSIONS:-}" ]]; then
-  OPENCLAW_EXTENSIONS="anthropic google openai slack telegram discord whatsapp"
+  OPENCLAW_EXTENSIONS="anthropic google openai slack telegram whatsapp"
   echo "Using default core extensions: $OPENCLAW_EXTENSIONS"
 fi
 
