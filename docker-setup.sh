@@ -193,20 +193,12 @@ fi
 OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
 OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
 
-# Auto-detect all extensions with package.json if OPENCLAW_EXTENSIONS is not set
+# Use curated list of stable core extensions if OPENCLAW_EXTENSIONS is not set.
+# This avoids including experimental extensions with known build issues.
+# Users can override with: OPENCLAW_EXTENSIONS="ext1 ext2" ./docker-setup.sh
 if [[ -z "${OPENCLAW_EXTENSIONS:-}" ]]; then
-  OPENCLAW_EXTENSIONS=""
-  for dir in "$ROOT_DIR/extensions"/*/; do
-    if [[ -f "${dir}package.json" ]]; then
-      ext_name="$(basename "$dir")"
-      if [[ -n "$OPENCLAW_EXTENSIONS" ]]; then
-        OPENCLAW_EXTENSIONS="$OPENCLAW_EXTENSIONS $ext_name"
-      else
-        OPENCLAW_EXTENSIONS="$ext_name"
-      fi
-    fi
-  done
-  echo "Auto-detected extensions: $OPENCLAW_EXTENSIONS"
+  OPENCLAW_EXTENSIONS="anthropic google openai slack telegram discord whatsapp"
+  echo "Using default core extensions: $OPENCLAW_EXTENSIONS"
 fi
 
 validate_mount_path_value "OPENCLAW_CONFIG_DIR" "$OPENCLAW_CONFIG_DIR"
